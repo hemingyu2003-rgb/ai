@@ -40,12 +40,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const uploadAvatarBtn = document.getElementById('uploadAvatar');
     const modelIndicator = document.getElementById('modelIndicator');
     const notificationContainer = document.getElementById('notificationContainer');
+    const fileUploadBtn = document.getElementById('fileUploadBtn');
+    const fileInput = document.getElementById('fileInput');
+    const filePreview = document.getElementById('filePreview');
+    const filePreviewModal = document.getElementById('filePreviewModal');
+    const closeFilePreviewModal = document.getElementById('closeFilePreviewModal');
+    const filePreviewTitle = document.getElementById('filePreviewTitle');
+    const filePreviewContent = document.getElementById('filePreviewContent');
+    const downloadFileBtn = document.getElementById('downloadFile');
 
     // 状态管理
     let currentUser = null;
     let currentChatId = null;
     let chats = [];
     let chatToDelete = null;
+    let selectedFiles = [];
+    let currentPreviewFile = null;
     let settings = {
         selectedModel: 'deepseek-v2',
         temperature: 70,
@@ -59,6 +69,9 @@ document.addEventListener('DOMContentLoaded', () => {
         sidebarCollapse: false,
         typingAnimation: true,
         messageSound: false,
+        maxFileSize: 10,
+        allowedFileTypes: ['image/*', '.pdf', '.doc', '.docx', '.txt'],
+        autoCompressImages: true,
         dataCollection: false,
         clearHistory: 'never'
     };
@@ -94,6 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
         closeModal.addEventListener('click', hideAuthModal);
         closeProfileModal.addEventListener('click', hideProfileModal);
         closeSettingsModal.addEventListener('click', hideSettingsModal);
+        closeFilePreviewModal.addEventListener('click', hideFilePreviewModal);
         profileBtn.addEventListener('click', showProfileModal);
         settingsBtn.addEventListener('click', showSettingsModal);
         
@@ -129,6 +143,13 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // 头像上传
         uploadAvatarBtn.addEventListener('click', handleAvatarUpload);
+        
+        // 文件上传
+        fileUploadBtn.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', handleFileSelect);
+        
+        // 文件下载
+        downloadFileBtn.addEventListener('click', downloadCurrentFile);
         
         // 删除确认
         closeDeleteModal.addEventListener('click', hideDeleteModal);
@@ -177,8 +198,16 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('sidebarCollapse').checked = settings.sidebarCollapse;
         document.getElementById('typingAnimation').checked = settings.typingAnimation;
         document.getElementById('messageSound').checked = settings.messageSound;
+        document.getElementById('maxFileSize').value = settings.maxFileSize;
+        document.getElementById('autoCompressImages').checked = settings.autoCompressImages;
         document.getElementById('dataCollection').checked = settings.dataCollection;
         document.getElementById('clearHistory').value = settings.clearHistory;
+        
+        // 设置允许的文件类型
+        const allowedFileTypesSelect = document.getElementById('allowedFileTypes');
+        Array.from(allowedFileTypesSelect.options).forEach(option => {
+            option.selected = settings.allowedFileTypes.includes(option.value);
+        });
     }
 
     function saveSettings() {
@@ -226,6 +255,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 sidebarCollapse: false,
                 typingAnimation: true,
                 messageSound: false,
+                maxFileSize: 10,
+                allowedFileTypes: ['image/*', '.pdf', '.doc', '.docx', '.txt'],
+                autoCompressImages: true,
                 dataCollection: false,
                 clearHistory: 'never'
             };
@@ -336,6 +368,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!messages || messages.length === 0) return '暂无消息';
         
         const lastMessage = messages[messages.length - 1];
+        if (lastMessage.files && lastMessage.files.length > 0) {
+            return `[文件] ${lastMessage.files[0].name}`;
+        }
         return lastMessage.content.substring(0, 30) + (lastMessage.content.length > 30 ? '...' : '');
     }
 
@@ -355,6 +390,7 @@ document.addEventListener('DOMContentLoaded', () => {
         saveChats();
         renderChatHistory();
         clearChatContainer();
+        clearFileSelection();
         
         // 显示欢迎消息
         document.querySelector('.welcome-message').style.display = 'block';
@@ -370,11 +406,16 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.setItem('currentChatId', chatId);
         
         clearChatContainer();
+        clearFileSelection();
         document.querySelector('.welcome-message').style.display = 'none';
         
         // 渲染聊天消息
         chat.messages.forEach(message => {
-            addMessageToChat(message.role, message.content, message.timestamp);
+            if (message.files && message.files.length > 0) {
+                addFileMessageToChat(message.role, message.content, message.timestamp, message.files);
+            } else {
+                addMessageToChat(message.role, message.content, message.timestamp);
+            }
         });
         
         // 更新聊天历史UI
@@ -397,6 +438,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (welcomeMessage) {
             chatContainer.appendChild(welcomeMessage);
         }
+    }
+
+    function clearFileSelection() {
+        selectedFiles = [];
+        filePreview.innerHTML = '';
+        fileInput.value = '';
     }
 
     function handleInputKeydown(e) {
@@ -422,7 +469,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function sendMessage() {
         const message = userInput.value.trim();
-        if (!message) return;
+        const hasFiles = selectedFiles.length > 0;
+        
+        if (!message && !hasFiles) return;
 
         // 禁用按钮和输入框，防止重复发送
         sendButton.disabled = true;
@@ -433,12 +482,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // 将用户消息添加到聊天界面
         const userMessageTime = new Date().toISOString();
-        addMessageToChat('user', message, userMessageTime);
         
-        // 保存用户消息到当前聊天
-        saveMessageToChat('user', message, userMessageTime);
+        if (hasFiles) {
+            addFileMessageToChat('user', message, userMessageTime, selectedFiles);
+            // 保存用户消息和文件到当前聊天
+            saveMessageToChat('user', message, userMessageTime, selectedFiles);
+        } else {
+            addMessageToChat('user', message, userMessageTime);
+            // 保存用户消息到当前聊天
+            saveMessageToChat('user', message, userMessageTime);
+        }
         
         userInput.value = ''; // 清空输入框
+        clearFileSelection();
         autoResizeTextarea(); // 重置文本区域高度
 
         try {
@@ -448,18 +504,30 @@ document.addEventListener('DOMContentLoaded', () => {
             // 使用设置中的模型
             const selectedModel = settings.selectedModel;
             
+            // 准备请求数据
+            const requestData = {
+                message: message,
+                model: selectedModel,
+                temperature: settings.temperature / 100,
+                max_tokens: settings.maxTokens
+            };
+            
+            // 如果有文件，添加文件信息
+            if (hasFiles) {
+                requestData.files = selectedFiles.map(file => ({
+                    name: file.name,
+                    type: file.type,
+                    size: file.size
+                }));
+            }
+            
             // 调用后端API
             const response = await fetch(settings.apiEndpoint, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ 
-                    message: message,
-                    model: selectedModel,
-                    temperature: settings.temperature / 100,
-                    max_tokens: settings.maxTokens
-                })
+                body: JSON.stringify(requestData)
             });
 
             const data = await response.json();
@@ -553,21 +621,36 @@ document.addEventListener('DOMContentLoaded', () => {
         return messageDiv;
     }
 
-    function saveMessageToChat(role, content, timestamp) {
+    function saveMessageToChat(role, content, timestamp, files = null) {
         if (!settings.autoSave) return;
         
         const chatIndex = chats.findIndex(chat => chat.id === currentChatId);
         if (chatIndex === -1) return;
         
-        chats[chatIndex].messages.push({
+        const messageData = {
             role,
             content,
             timestamp
-        });
+        };
+        
+        if (files && files.length > 0) {
+            messageData.files = files.map(file => ({
+                name: file.name,
+                type: file.type,
+                size: file.size,
+                data: file.data || null
+            }));
+        }
+        
+        chats[chatIndex].messages.push(messageData);
         
         // 如果这是第一条消息，设置聊天标题
         if (chats[chatIndex].messages.length === 1 && role === 'user') {
-            chats[chatIndex].title = content.substring(0, 20) + (content.length > 20 ? '...' : '');
+            if (content) {
+                chats[chatIndex].title = content.substring(0, 20) + (content.length > 20 ? '...' : '');
+            } else if (files && files.length > 0) {
+                chats[chatIndex].title = `[文件] ${files[0].name}`;
+            }
         }
         
         saveChats();
@@ -604,6 +687,104 @@ document.addEventListener('DOMContentLoaded', () => {
         chatContainer.scrollTop = chatContainer.scrollHeight;
         
         return messageDiv;
+    }
+
+    function addFileMessageToChat(role, content, timestamp, files) {
+        const messageDiv = document.createElement('div');
+        messageDiv.classList.add('message', `${role}-message`);
+        
+        if (content) {
+            const contentDiv = document.createElement('div');
+            contentDiv.textContent = content;
+            messageDiv.appendChild(contentDiv);
+        }
+        
+        // 添加文件预览
+        files.forEach(file => {
+            const fileElement = createFileElement(file);
+            messageDiv.appendChild(fileElement);
+        });
+        
+        if (timestamp) {
+            const timeElement = document.createElement('div');
+            timeElement.classList.add('message-time');
+            timeElement.textContent = formatTime(timestamp);
+            timeElement.style.display = settings.messageHistory ? 'block' : 'none';
+            messageDiv.appendChild(timeElement);
+        }
+        
+        chatContainer.appendChild(messageDiv);
+        
+        // 自动滚动到底部
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+        
+        return messageDiv;
+    }
+
+    function createFileElement(file) {
+        const fileDiv = document.createElement('div');
+        fileDiv.classList.add('message-file');
+        
+        // 文件图标
+        const fileIcon = document.createElement('i');
+        if (file.type.startsWith('image/')) {
+            fileIcon.classList.add('fas', 'fa-image', 'message-file-icon');
+            
+            // 图片预览
+            const img = document.createElement('img');
+            img.src = file.data || URL.createObjectURL(new Blob([file]));
+            img.classList.add('message-image');
+            img.alt = file.name;
+            img.addEventListener('click', () => previewFile(file));
+            fileDiv.appendChild(img);
+        } else {
+            // 根据文件类型设置图标
+            if (file.type === 'application/pdf') {
+                fileIcon.classList.add('fas', 'fa-file-pdf', 'message-file-icon');
+            } else if (file.type.includes('word') || file.name.endsWith('.doc') || file.name.endsWith('.docx')) {
+                fileIcon.classList.add('fas', 'fa-file-word', 'message-file-icon');
+            } else if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
+                fileIcon.classList.add('fas', 'fa-file-alt', 'message-file-icon');
+            } else {
+                fileIcon.classList.add('fas', 'fa-file', 'message-file-icon');
+            }
+        }
+        
+        // 文件信息
+        const fileInfo = document.createElement('div');
+        fileInfo.classList.add('message-file-info');
+        
+        const fileName = document.createElement('div');
+        fileName.classList.add('message-file-name');
+        fileName.textContent = file.name;
+        
+        const fileSize = document.createElement('div');
+        fileSize.classList.add('message-file-size');
+        fileSize.textContent = formatFileSize(file.size);
+        
+        fileInfo.appendChild(fileName);
+        fileInfo.appendChild(fileSize);
+        
+        // 文件操作
+        const fileAction = document.createElement('div');
+        fileAction.classList.add('message-file-action');
+        fileAction.innerHTML = '<i class="fas fa-download"></i>';
+        fileAction.title = '下载文件';
+        fileAction.addEventListener('click', () => downloadFile(file));
+        
+        fileDiv.appendChild(fileIcon);
+        fileDiv.appendChild(fileInfo);
+        fileDiv.appendChild(fileAction);
+        
+        return fileDiv;
+    }
+
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
 
     function formatTime(timestamp) {
@@ -647,6 +828,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function hideSettingsModal() {
         settingsModal.classList.remove('show');
+    }
+
+    function showFilePreviewModal() {
+        filePreviewModal.classList.add('show');
+    }
+
+    function hideFilePreviewModal() {
+        filePreviewModal.classList.remove('show');
+        currentPreviewFile = null;
     }
 
     function showProfileModal() {
@@ -855,8 +1045,14 @@ document.addEventListener('DOMContentLoaded', () => {
         settings.sidebarCollapse = document.getElementById('sidebarCollapse').checked;
         settings.typingAnimation = document.getElementById('typingAnimation').checked;
         settings.messageSound = document.getElementById('messageSound').checked;
+        settings.maxFileSize = parseInt(document.getElementById('maxFileSize').value);
+        settings.autoCompressImages = document.getElementById('autoCompressImages').checked;
         settings.dataCollection = document.getElementById('dataCollection').checked;
         settings.clearHistory = document.getElementById('clearHistory').value;
+        
+        // 获取允许的文件类型
+        const allowedFileTypesSelect = document.getElementById('allowedFileTypes');
+        settings.allowedFileTypes = Array.from(allowedFileTypesSelect.selectedOptions).map(option => option.value);
         
         saveSettings();
         applySettings();
@@ -875,6 +1071,185 @@ document.addEventListener('DOMContentLoaded', () => {
         
         userMenu.classList.remove('show');
         showNotification('已退出登录', 'info');
+    }
+
+    function handleFileSelect(e) {
+        const files = Array.from(e.target.files);
+        const maxSize = settings.maxFileSize * 1024 * 1024; // 转换为字节
+        
+        // 检查文件大小和类型
+        for (const file of files) {
+            if (file.size > maxSize) {
+                showNotification(`文件 ${file.name} 超过最大限制 ${settings.maxFileSize}MB`, 'error');
+                continue;
+            }
+            
+            // 检查文件类型
+            const isAllowed = settings.allowedFileTypes.some(type => {
+                if (type.includes('*')) {
+                    // 通配符类型，如图片
+                    return file.type.startsWith(type.replace('*', ''));
+                } else {
+                    // 具体扩展名
+                    return type.split(',').some(ext => file.name.toLowerCase().endsWith(ext));
+                }
+            });
+            
+            if (!isAllowed) {
+                showNotification(`不支持的文件类型: ${file.name}`, 'error');
+                continue;
+            }
+            
+            // 如果是图片且启用了自动压缩，压缩图片
+            if (file.type.startsWith('image/') && settings.autoCompressImages) {
+                compressImage(file).then(compressedFile => {
+                    compressedFile.originalName = file.name;
+                    selectedFiles.push(compressedFile);
+                    addFilePreview(compressedFile);
+                }).catch(error => {
+                    console.error('Error compressing image:', error);
+                    selectedFiles.push(file);
+                    addFilePreview(file);
+                });
+            } else {
+                selectedFiles.push(file);
+                addFilePreview(file);
+            }
+        }
+        
+        // 清空文件输入，允许选择相同文件
+        fileInput.value = '';
+    }
+
+    function compressImage(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = (event) => {
+                const img = new Image();
+                img.src = event.target.result;
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    
+                    // 计算压缩后的尺寸
+                    let width = img.width;
+                    let height = img.height;
+                    const maxDimension = 1024; // 最大尺寸
+                    
+                    if (width > height) {
+                        if (width > maxDimension) {
+                            height *= maxDimension / width;
+                            width = maxDimension;
+                        }
+                    } else {
+                        if (height > maxDimension) {
+                            width *= maxDimension / height;
+                            height = maxDimension;
+                        }
+                    }
+                    
+                    canvas.width = width;
+                    canvas.height = height;
+                    
+                    // 绘制压缩后的图片
+                    ctx.drawImage(img, 0, 0, width, height);
+                    
+                    // 转换为Blob
+                    canvas.toBlob((blob) => {
+                        const compressedFile = new File([blob], file.name, {
+                            type: 'image/jpeg',
+                            lastModified: Date.now()
+                        });
+                        resolve(compressedFile);
+                    }, 'image/jpeg', 0.7); // 70% 质量
+                };
+                img.onerror = reject;
+            };
+            reader.onerror = reject;
+        });
+    }
+
+    function addFilePreview(file) {
+        const previewItem = document.createElement('div');
+        previewItem.classList.add('file-preview-item');
+        
+        const fileName = document.createElement('span');
+        fileName.classList.add('file-preview-name');
+        fileName.textContent = file.originalName || file.name;
+        fileName.title = file.originalName || file.name;
+        
+        const removeBtn = document.createElement('span');
+        removeBtn.classList.add('file-preview-remove');
+        removeBtn.innerHTML = '<i class="fas fa-times"></i>';
+        removeBtn.title = '移除文件';
+        removeBtn.addEventListener('click', () => {
+            const index = selectedFiles.findIndex(f => f === file);
+            if (index !== -1) {
+                selectedFiles.splice(index, 1);
+                previewItem.remove();
+            }
+        });
+        
+        previewItem.appendChild(fileName);
+        previewItem.appendChild(removeBtn);
+        filePreview.appendChild(previewItem);
+    }
+
+    function previewFile(file) {
+        currentPreviewFile = file;
+        filePreviewTitle.textContent = file.name;
+        filePreviewContent.innerHTML = '';
+        
+        if (file.type.startsWith('image/')) {
+            const img = document.createElement('img');
+            img.src = file.data || URL.createObjectURL(file);
+            img.alt = file.name;
+            filePreviewContent.appendChild(img);
+        } else {
+            const icon = document.createElement('div');
+            icon.classList.add('file-preview-document');
+            
+            if (file.type === 'application/pdf') {
+                icon.innerHTML = '<i class="fas fa-file-pdf"></i>';
+            } else if (file.type.includes('word') || file.name.endsWith('.doc') || file.name.endsWith('.docx')) {
+                icon.innerHTML = '<i class="fas fa-file-word"></i>';
+            } else if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
+                icon.innerHTML = '<i class="fas fa-file-alt"></i>';
+            } else {
+                icon.innerHTML = '<i class="fas fa-file"></i>';
+            }
+            
+            const fileName = document.createElement('div');
+            fileName.textContent = file.name;
+            fileName.style.marginTop = '10px';
+            fileName.style.wordBreak = 'break-all';
+            
+            filePreviewContent.appendChild(icon);
+            filePreviewContent.appendChild(fileName);
+        }
+        
+        showFilePreviewModal();
+    }
+
+    function downloadFile(file) {
+        const url = file.data || URL.createObjectURL(file);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = file.name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        
+        if (!file.data) {
+            URL.revokeObjectURL(url);
+        }
+    }
+
+    function downloadCurrentFile() {
+        if (currentPreviewFile) {
+            downloadFile(currentPreviewFile);
+        }
     }
 
     function exportUserData() {
@@ -1008,6 +1383,10 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (deleteConfirmModal.classList.contains('show') && !deleteConfirmModal.querySelector('.modal-content').contains(e.target)) {
             hideDeleteModal();
+        }
+        
+        if (filePreviewModal.classList.contains('show') && !filePreviewModal.querySelector('.modal-content').contains(e.target)) {
+            hideFilePreviewModal();
         }
     }
 

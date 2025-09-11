@@ -304,6 +304,61 @@ body {
   opacity: 0.7;
 }
 
+/* 文件消息样式 */
+.message-file {
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  padding: 10px;
+  border-radius: 8px;
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.message-file-icon {
+  font-size: 24px;
+  color: var(--primary-color);
+}
+
+.message-file-info {
+  flex: 1;
+  overflow: hidden;
+}
+
+.message-file-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.message-file-size {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.message-file-action {
+  color: var(--primary-color);
+  cursor: pointer;
+}
+
+.message-file-action:hover {
+  opacity: 0.8;
+}
+
+/* 图片消息样式 */
+.message-image {
+  max-width: 100%;
+  border-radius: 8px;
+  margin-top: 10px;
+  cursor: pointer;
+}
+
+.message-image:hover {
+  opacity: 0.9;
+}
+
 .input-area {
   padding: 15px;
   background-color: var(--card-bg);
@@ -314,6 +369,73 @@ body {
   display: flex;
   gap: 10px;
   margin-bottom: 8px;
+  align-items: flex-end;
+}
+
+.file-upload-container {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.file-upload-btn {
+  background: none;
+  border: none;
+  font-size: 18px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.file-upload-btn:hover {
+  background-color: var(--border-color);
+  color: var(--primary-color);
+}
+
+#fileInput {
+  display: none;
+}
+
+.file-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-width: 200px;
+}
+
+.file-preview-item {
+  display: flex;
+  align-items: center;
+  background-color: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  max-width: 100%;
+}
+
+.file-preview-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+.file-preview-remove {
+  margin-left: 5px;
+  color: var(--danger-color);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.file-preview-remove:hover {
+  opacity: 0.8;
 }
 
 #userInput {
@@ -543,6 +665,16 @@ body {
   margin-right: 10px;
 }
 
+.form-group input[type="number"] {
+  width: 100px;
+}
+
+.form-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 5px;
+}
+
 .slider-container {
   display: flex;
   align-items: center;
@@ -647,6 +779,25 @@ body {
 .cancel-button:hover,
 .danger-button:hover {
   opacity: 0.9;
+}
+
+/* 文件预览模态框 */
+#filePreviewContent {
+  text-align: center;
+  max-height: 60vh;
+  overflow: auto;
+}
+
+#filePreviewContent img {
+  max-width: 100%;
+  max-height: 50vh;
+  border-radius: 8px;
+}
+
+.file-preview-document {
+  font-size: 80px;
+  color: var(--primary-color);
+  margin: 20px 0;
 }
 
 /* 通知样式 */
@@ -767,6 +918,20 @@ body {
       flex-direction: column;
       align-items: flex-start;
       gap: 5px;
+  }
+  
+  .input-container {
+      flex-wrap: wrap;
+  }
+  
+  .file-upload-container {
+      order: 1;
+      width: 100%;
+      margin-bottom: 10px;
+  }
+  
+  .file-preview {
+      max-width: 100%;
   }
 }
 
